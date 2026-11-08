@@ -11,7 +11,7 @@ The original author's name and applicable notices are retained for attribution. 
 
 ## Port and modifications
 
-This repository contains a NeoForge 1.21.1 port, including changes to the implementation for the modern Minecraft/NeoForge APIs, the 18-column × 2-row presentation, and HUD alignment adjustments in v1.0.4.
+This repository contains a NeoForge 1.21.1 port, including changes to the implementation for the modern Minecraft/NeoForge APIs, the 18-column × 2-row presentation, and HUD alignment adjustments in v1.0.4 and third-party HUD-layer compatibility changes in v1.0.5.
 
 The port is maintained by the contributors to this repository. The Git history records changes made in this repository. Individual source files carry SPDX license identifiers and port/modification notices.
 

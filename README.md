@@ -6,7 +6,7 @@ An **unofficial community port** of [Dual Hotbar by RebelKeithy](https://www.cur
 
 ## Project status
 
-- Project version: **1.0.4**
+- Project version: **1.0.5**
 - Minecraft: **1.21.1**
 - Mod loader: **NeoForge 21.1.x** (minimum declared version: 21.1.65)
 - Java: **21 (JDK)**
@@ -23,6 +23,8 @@ The source package has not been represented as an in-game verified release. Buil
 - Hold the extra-row key (default **Left Ctrl**) and press **1–9** to select the second visual row.
 - Double-tap a number key to cycle to the next logical row while retaining the column.
 - Adjusted HUD placement for the 18×2 layout.
+- Preserves the expected draw order for third-party HUD layers registered directly above the vanilla hotbar (panel → overlay → item icons).
+- Applies the expanded-HUD vertical offset to the full vanilla bottom-HUD layer band, including third-party layers inserted within that band.
 - Uses normal inventory swap interactions so item use remains server-authoritative; the server is not intended to require this client-side port.
 
 ## Installation
@@ -54,7 +56,18 @@ After first launch, the client configuration is stored at `config/dualhotbar-cli
 - `enableScrollSelection`: enable mouse-wheel slot selection.
 - `doubleTapTime`: double-tap interval in milliseconds.
 
-The v1.0.4 layout is fixed at 36 slots (18×2). Legacy layout settings from earlier builds are ignored.
+The v1.0.5 layout is fixed at 36 slots (18×2). Legacy layout settings from earlier builds are ignored. HUD compatibility is improved for mods that use NeoForge GUI layers. Mods that inject directly into the vanilla `Gui.renderHotbar` method or draw outside the layered HUD pipeline may still require a dedicated compatibility patch.
+
+## HUD overlay compatibility
+
+The hotbar renderer is split into two phases:
+
+1. The replacement panel is drawn at the vanilla `HOTBAR` layer.
+2. Item icons are drawn at the next vanilla layer boundary (`JUMP_METER`), after third-party layers registered above `HOTBAR` have rendered.
+
+This preserves the common NeoForge layer order of panel → hotbar overlay → item icons. The vertical HUD offset is held from `JUMP_METER` through `EXPERIENCE_LEVEL` (including `SPECTATOR_TOOLTIP`), so third-party GUI layers inserted among the health, armor, food, air, experience, and selected-item HUD layers inherit the same offset.
+
+**Compatibility boundary:** a mod that injects directly into the body of vanilla `Gui.renderHotbar`, cancels/replaces the same `HOTBAR` layer, or draws through a separate global render hook outside the named GUI-layer sequence may still need a mod-specific integration. NeoForge layer ordering cannot automatically preserve arbitrary mixins or out-of-band render callbacks.
 
 ## Build on Windows
 
@@ -78,7 +91,7 @@ java -version
 `build.ps1` downloads and uses **Gradle 8.14.3** in the project-local `.tools` directory. The generated JAR is:
 
 ```text
-build\libs\dualhotbar-1.0.4.jar
+build\libs\dualhotbar-1.0.5.jar
 ```
 
 The `.tools` and `build` directories are generated locally and are excluded from Git by `.gitignore`.
@@ -95,6 +108,7 @@ LICENSE               Full GPL-3.0 license text
 NOTICE.md             Original-project attribution and port notices
 CHANGELOG.md          Release history
 TESTING.md             Manual verification checklist
+HUD_COMPATIBILITY.md   HUD-layer compatibility design and limits
 ```
 
 ## Credits and provenance

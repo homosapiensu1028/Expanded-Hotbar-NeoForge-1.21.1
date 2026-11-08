@@ -1,6 +1,6 @@
 /*
  * Unofficial NeoForge 1.21.1 port of Dual Hotbar, originally by RebelKeithy.
- * This source file is part of the port and was updated for the v1.0.4 release
+ * This source file is part of the port and was updated for the v1.0.5 release
  * (2026-11-08), including source attribution and distribution notices.
  * SPDX-License-Identifier: GPL-3.0-only
  * See the repository's NOTICE.md and LICENSE files for provenance and license.
