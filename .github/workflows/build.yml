@@ -1,0 +1,35 @@
+name: Build NeoForge mod
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build mod
+        shell: pwsh
+        run: .\build.ps1
+
+      - name: Upload built JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: dualhotbar-1.0.4
+          path: build/libs/dualhotbar-1.0.4.jar
+          if-no-files-found: error

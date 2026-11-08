@@ -1,0 +1,27 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="GPL-3.0-only"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="Dual Hotbar (NeoForge Port)"
+authors="${mod_authors}"
+description='''
+${mod_description}
+Original Dual Hotbar by RebelKeithy. NeoForge 1.21.1 port.
+'''
+
+[[dependencies.${mod_id}]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.65,22.0)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"

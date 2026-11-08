@@ -1,0 +1,67 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'net.neoforged.moddev' version '1.0.23'
+}
+
+version = project.mod_version
+group = project.mod_group_id
+
+base {
+    archivesName = 'dualhotbar'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = project.neoforge_version
+
+    runs {
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+    }
+
+    mods {
+        "${project.mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+tasks.withType(ProcessResources).configureEach {
+    def props = [
+            mod_id: project.mod_id,
+            mod_version: project.mod_version,
+            mod_name: project.mod_name,
+            mod_authors: project.mod_authors,
+            mod_description: project.mod_description
+    ]
+    inputs.properties props
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand props
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+jar {
+    manifest {
+        attributes([
+                'Specification-Title': project.mod_name,
+                'Specification-Vendor': 'RebelKeithy / NeoForge port contributors',
+                'Specification-Version': project.mod_version,
+                'Implementation-Title': project.mod_name,
+                'Implementation-Version': project.version
+        ])
+    }
+}

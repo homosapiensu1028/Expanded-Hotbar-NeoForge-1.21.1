@@ -1,0 +1,24 @@
+# Gradle and local tool downloads
+.gradle/
+.tools/
+build/
+
+# Runtime and test data
+run/
+logs/
+*.log
+
+# IDE/editor settings
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local archives and build outputs
+*.class
+*.jar
+*.zip
