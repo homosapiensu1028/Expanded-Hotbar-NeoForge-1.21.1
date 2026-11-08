@@ -30,6 +30,6 @@ jobs:
       - name: Upload built JAR
         uses: actions/upload-artifact@v4
         with:
-          name: dualhotbar-1.0.4
-          path: build/libs/dualhotbar-1.0.4.jar
+          name: dualhotbar-1.0.5
+          path: build/libs/dualhotbar-1.0.5.jar
           if-no-files-found: error

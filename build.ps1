@@ -74,7 +74,7 @@ try {
     Pop-Location
 }
 
-$JarPath = Join-Path $ProjectRoot 'build\libs\dualhotbar-1.0.4.jar'
+$JarPath = Join-Path $ProjectRoot 'build\libs\dualhotbar-1.0.5.jar'
 if (-not (Test-Path $JarPath)) {
     throw "Gradle reported success, but the expected JAR was not found: $JarPath"
 }

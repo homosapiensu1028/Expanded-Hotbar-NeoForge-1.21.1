@@ -6,8 +6,12 @@ The source package should not be described as fully verified until these checks 
 
 - [ ] `java -version` reports JDK 21.
 - [ ] `./build.ps1` (or `build.bat`) completes successfully.
-- [ ] `build/libs/dualhotbar-1.0.4.jar` exists and opens as a ZIP/JAR.
+- [ ] `build/libs/dualhotbar-1.0.5.jar` exists and opens as a ZIP/JAR.
 - [ ] The JAR metadata reports Minecraft 1.21.1 and NeoForge 21.1.x compatibility.
+
+## Static checks
+
+- [ ] Run `py tools/verify_hud_layer_compat.py`; it must report `PASS`.
 
 ## In-game checks
 
@@ -26,3 +30,13 @@ The source package should not be described as fully verified until these checks 
 - [ ] Test on a multiplayer server where only the client has this port installed, if client-only use is intended.
 
 Record the tested Minecraft version, exact NeoForge version, Java version, mod list, and test date in the release notes.
+
+## Third-party HUD overlay compatibility (v1.0.5)
+
+- [ ] Test with AppleSkin/AppleCore-compatible food HUD overlays enabled.
+- [ ] Test at least one unrelated mod that registers a GUI layer directly above `VanillaGuiLayers.HOTBAR`; confirm its effect appears between the replacement panel and item icons.
+- [ ] Test a modded layer inserted above `PLAYER_HEALTH`, `FOOD_LEVEL`, or `EXPERIENCE_BAR`; confirm it moves upward with the expanded bottom HUD.
+- [ ] Confirm item icons and stack-count/durability decorations remain visible above hotbar underlay effects.
+- [ ] Confirm the HUD returns to normal when Dual Hotbar is disabled, a screen is opened, or the player leaves the world.
+- [ ] Confirm the pose stack remains balanced with optional HUD layers disabled or cancelled.
+- [ ] Test a mod that injects directly into `Gui.renderHotbar`; record this as a known compatibility limitation if it replaces/cancels that vanilla layer.

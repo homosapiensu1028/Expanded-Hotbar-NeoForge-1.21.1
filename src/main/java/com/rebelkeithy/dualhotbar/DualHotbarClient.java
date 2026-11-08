@@ -1,6 +1,6 @@
 /*
  * Unofficial NeoForge 1.21.1 port of Dual Hotbar, originally by RebelKeithy.
- * This source file is part of the port and was updated for the v1.0.4 release
+ * This source file is part of the port and was updated for the v1.0.5 release
  * (2026-11-08), including source attribution and distribution notices.
  * SPDX-License-Identifier: GPL-3.0-only
  * See the repository's NOTICE.md and LICENSE files for provenance and license.
@@ -17,10 +17,12 @@ import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
@@ -49,6 +51,12 @@ public final class DualHotbarClient {
     private static int appliedColumn = -1;
     private static boolean wasInWorld;
     private static double scrollRemainder;
+
+    /** Set after the replacement background is drawn at HOTBAR. */
+    private static boolean awaitingHotbarForeground;
+    /** One balanced pose transform is held across the bottom-HUD layer band. */
+    private static boolean hudShiftActive;
+    private static GuiGraphics hudShiftGraphics;
 
     private DualHotbarClient() {
     }
@@ -293,181 +301,199 @@ public final class DualHotbarClient {
         }
     }
 
-    @SubscribeEvent
-    public static void onPreGuiLayer(RenderGuiLayerEvent.Pre event) {
+    /**
+     * Draw only the replacement hotbar background at the vanilla HOTBAR position.
+     * This happens early so other mods that draw in HOTBAR's Pre event or register
+     * a layer directly above HOTBAR can draw over the panel before item icons.
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onHotbarBackground(RenderGuiLayerEvent.Pre event) {
+        if (!event.getName().equals(VanillaGuiLayers.HOTBAR)) {
+            return;
+        }
+
         Minecraft client = Minecraft.getInstance();
+        finishHudShift(event.getGuiGraphics()); // fail-safe against an interrupted previous frame
+        awaitingHotbarForeground = false;
         if (!isEnabled(client)) {
             return;
         }
 
-        ResourceLocation layer = event.getName();
-        if (layer.equals(VanillaGuiLayers.HOTBAR)) {
+        renderExpandedHotbarBackground(client, event.getGuiGraphics());
+        awaitingHotbarForeground = true;
+    }
+
+    /**
+     * Suppress only vanilla's own HOTBAR layer, after ordinary Pre listeners have
+     * had an opportunity to draw their overlays. The replacement background has
+     * already been drawn by onHotbarBackground.
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void suppressVanillaHotbar(RenderGuiLayerEvent.Pre event) {
+        if (event.getName().equals(VanillaGuiLayers.HOTBAR) && isEnabled(Minecraft.getInstance())) {
             event.setCanceled(true);
-            renderExpandedHotbar(client, event.getGuiGraphics());
-            return;
-        }
-
-        if (shouldShiftLayer(layer) && hudShift() > 0) {
-            event.getGuiGraphics().pose().pushPose();
-            event.getGuiGraphics().pose().translate(0.0D, -hudShift(), 0.0D);
         }
     }
 
-    @SubscribeEvent
-    public static void onPostGuiLayer(RenderGuiLayerEvent.Post event) {
+    /**
+     * In 1.21.1 the layer order is HOTBAR -> JUMP_METER -> EXPERIENCE_BAR ->
+     * PLAYER_HEALTH ... -> SELECTED_ITEM_NAME -> EFFECTS. Mods that
+     * register layers above HOTBAR therefore render before JUMP_METER. Draw item
+     * icons at that boundary so those effects remain between the hotbar panel and
+     * item icons, matching the intended vanilla overlay order.
+     *
+     * The HUD offset then stays active through the complete bottom-HUD band. This
+     * automatically moves third-party layers inserted among health/food/XP layers
+     * instead of maintaining a fragile list of known mod IDs or layer names.
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onHudLayerCompatibility(RenderGuiLayerEvent.Pre event) {
+        ResourceLocation layer = event.getName();
+        GuiGraphics graphics = event.getGuiGraphics();
+
+        // Always close the transform before status-effect icons and other top-level HUD layers.
+        if (layer.equals(VanillaGuiLayers.EFFECTS)) {
+            finishHudShift(graphics);
+            return;
+        }
+
+        if (!layer.equals(VanillaGuiLayers.JUMP_METER) || !awaitingHotbarForeground) {
+            return;
+        }
+
         Minecraft client = Minecraft.getInstance();
-        if (!isEnabled(client)) {
+        if (isEnabled(client)) {
+            // Third-party layers registered directly above HOTBAR have now rendered.
+            // Draw item icons after those layers, but before the vanilla stat HUD.
+            renderExpandedHotbarItems(client, graphics);
+            beginHudShift(graphics);
+        }
+        awaitingHotbarForeground = false;
+    }
+
+    /**
+     * Last-resort cleanup if another mod removes or defers the EFFECTS layer.
+     * NeoForge fires this after all normal HUD layers have rendered.
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onHudRenderPost(RenderGuiEvent.Post event) {
+        finishHudShift(event.getGuiGraphics());
+        awaitingHotbarForeground = false;
+    }
+
+    private static void beginHudShift(GuiGraphics graphics) {
+        if (hudShiftActive || hudShift() <= 0) {
+            return;
+        }
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0D, -hudShift(), 0.0D);
+        hudShiftGraphics = graphics;
+        hudShiftActive = true;
+    }
+
+    private static void finishHudShift(GuiGraphics graphics) {
+        if (!hudShiftActive) {
+            return;
+        }
+        GuiGraphics target = hudShiftGraphics != null ? hudShiftGraphics : graphics;
+        target.pose().popPose();
+        hudShiftGraphics = null;
+        hudShiftActive = false;
+    }
+
+    /** Draws the two-row panel and selection frame, but deliberately no item icons. */
+    private static void renderExpandedHotbarBackground(Minecraft client, GuiGraphics graphics) {
+        LocalPlayer player = client.player;
+        if (player == null) {
             return;
         }
 
-        if (shouldShiftLayer(event.getName()) && hudShift() > 0) {
-            event.getGuiGraphics().pose().popPose();
+        int width = graphics.guiWidth();
+        int height = graphics.guiHeight();
+        int compactWidth = 362; // 18 slots × 20px plus 2px outer border
+        int startX = width / 2 - compactWidth / 2;
+
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, 0.0F, -90.0F);
+
+        // Tile vanilla 9-slot artwork twice per row without stretching textures.
+        for (int displayRow = 0; displayRow < 2; displayRow++) {
+            int y = height - 22 * (displayRow + 1);
+            graphics.blitSprite(HOTBAR_SPRITE, startX, y, 182, 22);
+            graphics.blitSprite(HOTBAR_SPRITE, startX + 180, y, 182, 22);
         }
+
+        int selectedColumn = Math.floorMod(virtualSlot, 18);
+        int selectedRow = Math.floorDiv(virtualSlot, 18);
+        int selectedX = startX - 1 + selectedColumn * 20;
+        int selectedY = height - 22 * (selectedRow + 1) - 1;
+        graphics.blitSprite(SELECTION_SPRITE, selectedX, selectedY, 24, 23);
+
+        // Keep the offhand frame outside the expanded 18-slot row.
+        ItemStack offhand = player.getOffhandItem();
+        HumanoidArm offhandSide = player.getMainArm().getOpposite();
+        if (offhand.isEmpty()) {
+            if (offhandSide == HumanoidArm.LEFT) {
+                graphics.blitSprite(OFFHAND_LEFT_SPRITE, startX - 29, height - 23, 29, 24);
+            } else {
+                graphics.blitSprite(OFFHAND_RIGHT_SPRITE, startX + compactWidth, height - 23, 29, 24);
+            }
+        }
+        graphics.pose().popPose();
     }
 
-    private static boolean shouldShiftLayer(ResourceLocation layer) {
-        return layer.equals(VanillaGuiLayers.PLAYER_HEALTH)
-                || layer.equals(VanillaGuiLayers.FOOD_LEVEL)
-                || layer.equals(VanillaGuiLayers.ARMOR_LEVEL)
-                || layer.equals(VanillaGuiLayers.EXPERIENCE_BAR)
-                || layer.equals(VanillaGuiLayers.EXPERIENCE_LEVEL)
-                || layer.equals(VanillaGuiLayers.AIR_LEVEL)
-                || layer.equals(VanillaGuiLayers.JUMP_METER)
-                || layer.equals(VanillaGuiLayers.VEHICLE_HEALTH)
-                || layer.equals(VanillaGuiLayers.SELECTED_ITEM_NAME);
-    }
-
-    private static void renderExpandedHotbar(Minecraft client, GuiGraphics graphics) {
+    /**
+     * Draws item contents after third-party layers anchored directly above HOTBAR.
+     * This preserves the vanilla visual order: panel -> overlay effects -> items.
+     */
+    private static void renderExpandedHotbarItems(Minecraft client, GuiGraphics graphics) {
         LocalPlayer player = client.player;
         if (player == null) {
             return;
         }
 
         int rows = configuredRows();
+        int compactColumns = 18;
+        int compactWidth = 362;
         int width = graphics.guiWidth();
         int height = graphics.guiHeight();
-        boolean compact = compactFourRowLayout();
-        boolean stacked = true; // retained for the unreachable legacy fallback renderer
-        int compactColumns = 18;
-        int compactWidth = 362; // 18 slots × 20px plus 2px outer border
-        int startX = compact
-                ? width / 2 - compactWidth / 2
-                : (stacked ? width / 2 - 91 : width / 2 - (rows * 182) / 2);
-        int bottomY = height - 22;
+        int startX = width / 2 - compactWidth / 2;
 
-        graphics.pose().pushPose();
-        graphics.pose().translate(0.0F, 0.0F, -90.0F);
-
-        if (compact) {
-            // Tile the vanilla 9-slot background twice per row. This keeps the
-            // original 20px slot pitch and avoids stretching slot artwork.
-            for (int displayRow = 0; displayRow < 2; displayRow++) {
-                int y = height - 22 * (displayRow + 1);
-                graphics.blitSprite(HOTBAR_SPRITE, startX, y, 182, 22);
-                graphics.blitSprite(HOTBAR_SPRITE, startX + 180, y, 182, 22); // overlap the 2px end borders for a continuous 18-slot row
-            }
-
-            int selectedColumn = Math.floorMod(virtualSlot, compactColumns);
-            int selectedRow = Math.floorDiv(virtualSlot, compactColumns);
-            int selectedX = startX - 1 + selectedColumn * 20;
-            int selectedY = height - 22 * (selectedRow + 1) - 1;
-            graphics.blitSprite(SELECTION_SPRITE, selectedX, selectedY, 24, 23);
-        } else {
-            // Original 9-column stacked or single long-row presentation.
-            for (int row = 0; row < rows; row++) {
-                int x = stacked ? startX : startX + row * 182;
-                int y = stacked ? height - 22 * (row + 1) : bottomY;
-                graphics.blitSprite(HOTBAR_SPRITE, x, y, 182, 22);
-            }
-
-            int selectedRow = activeRow();
-            int selectedColumn = activeColumn();
-            int selectedX = stacked
-                    ? startX - 1 + selectedColumn * 20
-                    : startX - 1 + virtualSlot * 20;
-            int selectedY = stacked
-                    ? height - 22 * (selectedRow + 1) - 1
-                    : bottomY - 1;
-            graphics.blitSprite(SELECTION_SPRITE, selectedX, selectedY, 24, 23);
-        }
-
-        // The offhand frame is moved outside the wider 18-slot row so it never
-        // covers a normal inventory slot.
-        ItemStack offhand = player.getOffhandItem();
-        HumanoidArm offhandSide = player.getMainArm().getOpposite();
-        if (offhand.isEmpty()) {
-            if (compact) {
-                if (offhandSide == HumanoidArm.LEFT) {
-                    graphics.blitSprite(OFFHAND_LEFT_SPRITE, startX - 29, height - 23, 29, 24);
-                } else {
-                    graphics.blitSprite(OFFHAND_RIGHT_SPRITE, startX + compactWidth, height - 23, 29, 24);
-                }
-            } else if (offhandSide == HumanoidArm.LEFT) {
-                graphics.blitSprite(OFFHAND_LEFT_SPRITE, width / 2 - 91 - 29, height - 23, 29, 24);
-            } else {
-                graphics.blitSprite(OFFHAND_RIGHT_SPRITE, width / 2 + 91, height - 23, 29, 24);
-            }
-        }
-        graphics.pose().popPose();
-
-        // Draw every logical inventory slot exactly once. In compact mode the
-        // linear 0..35 inventory is reflowed from 4x9 into 2x18.
         int seed = 1;
         for (int inventoryIndex = 0; inventoryIndex < rows * 9; inventoryIndex++) {
             int physicalIndex = physicalInventoryIndex(inventoryIndex);
             ItemStack stack = player.getInventory().getItem(physicalIndex);
-            int x;
-            int y;
-            if (compact) {
-                int displayRow = inventoryIndex / compactColumns;
-                int displayColumn = inventoryIndex % compactColumns;
-                x = startX + displayColumn * 20 + 3; // vanilla hotbar item inset: startX + 1 + 2
-                y = height - 22 * (displayRow + 1) + 3;
-            } else {
-                int row = inventoryIndex / 9;
-                int column = inventoryIndex % 9;
-                x = stacked
-                        ? startX + column * 20 + 2
-                        : startX + inventoryIndex * 20 + 2;
-                y = stacked
-                        ? height - 22 * (row + 1) + 3
-                        : bottomY + 3;
-            }
+            int displayRow = inventoryIndex / compactColumns;
+            int displayColumn = inventoryIndex % compactColumns;
+            int x = startX + displayColumn * 20 + 3;
+            int y = height - 22 * (displayRow + 1) + 3;
             graphics.renderItem(player, stack, x, y, seed++);
             graphics.renderItemDecorations(client.font, stack, x, y);
         }
 
+        ItemStack offhand = player.getOffhandItem();
         if (!offhand.isEmpty()) {
-            int x;
-            if (compact) {
-                x = offhandSide == HumanoidArm.LEFT ? startX - 26 : startX + compactWidth + 10;
-            } else {
-                x = offhandSide == HumanoidArm.LEFT ? width / 2 - 91 - 26 : width / 2 + 91 + 10;
-            }
+            HumanoidArm offhandSide = player.getMainArm().getOpposite();
+            int x = offhandSide == HumanoidArm.LEFT ? startX - 26 : startX + compactWidth + 10;
             int y = height - 16 - 3;
             graphics.renderItem(player, offhand, x, y, seed);
             graphics.renderItemDecorations(client.font, offhand, x, y);
         }
 
-        // Preserve the vanilla hotbar attack indicator, outside the compact bar.
+        // Keep the vanilla hotbar attack indicator beside the lower row.
         if (client.options.attackIndicator().get() == AttackIndicatorStatus.HOTBAR) {
             float strength = player.getAttackStrengthScale(0.0F);
             if (strength < 1.0F) {
-                int x;
-                if (compact) {
-                    x = player.getMainArm() == HumanoidArm.RIGHT
-                            ? startX - 51
-                            : startX + compactWidth + 33;
-                } else {
-                    x = player.getMainArm() == HumanoidArm.RIGHT
-                            ? width / 2 - 91 - 22
-                            : width / 2 + 91 + 6;
-                }
+                HumanoidArm mainArm = player.getMainArm();
+                int x = mainArm == HumanoidArm.RIGHT
+                        ? startX - 51
+                        : startX + compactWidth + 33;
                 int y = height - 20;
                 int filled = (int) (strength * 19.0F);
                 graphics.blitSprite(ATTACK_BACKGROUND_SPRITE, x, y, 18, 18);
                 if (filled > 0) {
-                    graphics.blitSprite(ATTACK_PROGRESS_SPRITE, 18, 18, 0, 18 - filled, x, y + 18 - filled, 18, filled);
+                    graphics.blitSprite(ATTACK_PROGRESS_SPRITE, 18, 18, 0, 18 - filled,
+                            x, y + 18 - filled, 18, filled);
                 }
             }
         }
